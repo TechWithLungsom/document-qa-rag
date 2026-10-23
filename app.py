@@ -1,112 +1,106 @@
-"""Run with: streamlit run app.py"""
+"""Minimal document question-answering interface."""
+import hashlib
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import hashlib
 import streamlit as st
 from rag import Index, ingest, answer
 
-st.set_page_config(page_title='Document Studio', page_icon='📚', layout='wide')
+st.set_page_config(page_title='Ask your documents', page_icon='📄', layout='centered', initial_sidebar_state='collapsed')
 st.markdown('''<style>
-.stApp {background: #f8fafc;}
-.block-container {max-width: 1150px; padding-top: 2.5rem;}
-h1 {letter-spacing: -1.5px;}
-[data-testid="stSidebar"] {background: #eef2ff;}
+.stApp{background:#fafaf9;color:#202521}
+.block-container{max-width:820px;padding-top:3rem;padding-bottom:4rem}
+h1{letter-spacing:-1.5px;font-size:2.6rem!important;font-weight:650!important}
+h2{font-size:1.15rem!important;margin-top:1rem!important}
+[data-testid="stHeader"]{background:transparent}
+[data-testid="stMetric"]{background:white;border:1px solid #e7e8e5;border-radius:10px;padding:12px}
+.stButton>button[kind="primary"]{background:#276749;border-color:#276749}
 </style>''', unsafe_allow_html=True)
-st.caption('DOCUMENT STUDIO  /  LOCAL DOCUMENT ASSISTANT')
-st.title('Your documents. Clear answers.')
-st.write('Upload your files, ask a question, and explore the passages behind every answer.')
-
+st.title('Ask your documents')
+st.write('Find answers in your PDFs, with sources you can check.')
+hosted=bool(os.getenv('RENDER'))
 with st.sidebar:
-    st.header('Your workspace')
-    uploads = st.file_uploader('Upload documents', type=['pdf','txt'], accept_multiple_files=True)
-    samples = st.checkbox('Use files from the data folder', value=not bool(uploads))
-    st.divider()
-    mode = st.radio('Answer mode', ['Local AI · Ollama', 'Offline · passages only'])
-    semantic = st.checkbox('Semantic search', value=True, help='Downloads the embedding model on first use. Turn off for the quick lexical baseline.')
-    model = st.text_input('Ollama model', 'llama3.2:3b') if mode.startswith('Local') else None
-    with st.expander('Retrieval settings'):
-        size = st.slider('Chunk size (characters)', 160, 2000, 500, 20)
-        overlap = st.slider('Chunk overlap', 0, min(150,size-1), min(80,size-1), 1)
-        k = st.slider('Passages to retrieve', 1, 10, 3)
-    st.caption('Files are processed on this computer. Scanned PDFs require OCR.')
+    st.header('Settings')
+    st.caption('The default search works without a model download.')
+    semantic=st.checkbox('Use semantic search',value=False,help='Requires a downloaded embedding model and enough server memory.')
+    local_ai=st.checkbox('Use local Ollama',value=False,disabled=hosted)
+    if hosted: st.caption('AI writing is not connected on this website. Search returns original document passages.')
+    model=st.text_input('Model name','llama3.2:3b') if local_ai else None
+    k=st.slider('Number of passages',1,5,3)
+    size=st.slider('Passage length',200,1500,500,100)
+    overlap=st.slider('Passage overlap',0,150,80,10)
+    st.caption('Categories are taken from the first part of each filename, before an underscore.')
 
-files = []
-if samples:
-    files.extend((p.name,p.read_bytes()) for p in sorted((Path(__file__).parent/'data').glob('*')) if p.suffix.lower() in ('.pdf','.txt'))
-files.extend((Path(f.name).name,f.getvalue()) for f in uploads or [])
-# Include bytes and settings: changing documents disables the old index immediately.
-signature = hashlib.sha256(repr((files,size,overlap,semantic)).encode()).hexdigest()
-if st.session_state.get('signature') != signature:
-    for key in ('index','stats','response','hits'):
-        st.session_state.pop(key,None)
-    st.session_state.signature = signature
-
-if st.button('Process documents', type='primary', disabled=not files):
-    try:
-        with st.spinner('Reading documents and building the search index. The first model load can take several minutes…'):
-            with TemporaryDirectory() as folder:
-                # Disambiguate duplicate names without letting uploads escape the folder.
-                seen=set()
-                for name,content in files:
-                    name=Path(name).name
-                    while name in seen: name='copy_'+name
-                    seen.add(name)
-                    (Path(folder)/name).write_bytes(content)
-                chunks,stats=ingest(folder,size,overlap)
-            if not chunks:
-                st.error('No readable text found. Try a text-based PDF or TXT file.')
-            else:
-                index=Index(chunks,semantic)
-                st.session_state.index=index
-                st.session_state.stats=stats
-    except Exception as exc:
-        st.error(f'Could not process documents: {exc}')
-        st.info('Check your connection for the first embedding download, or turn off Semantic search to try the offline baseline.')
-
+st.subheader('1. Add your documents')
+uploads=st.file_uploader('Choose PDF or text files',type=['pdf','txt'],accept_multiple_files=True,help='Use PDFs with selectable text. Scanned pages need OCR first.')
+st.caption('Files are processed on the server for this session. Upload only documents you are comfortable processing here.')
+files=[(Path(f.name).name,f.getvalue()) for f in uploads or []]
+sig=hashlib.sha256(repr((files,semantic,size,overlap)).encode()).hexdigest()
+if st.session_state.get('signature')!=sig:
+    for key in ('index','stats','result','hits','asked','answer_mode'): st.session_state.pop(key,None)
+    st.session_state.signature=sig
+if files and 'index' not in st.session_state:
+    if st.button('Prepare documents',type='primary'):
+        try:
+            with st.spinner('Preparing your documents. First-time semantic search may take a few minutes…'):
+                with TemporaryDirectory() as folder:
+                    seen=set()
+                    for name,content in files:
+                        while name in seen: name='copy_'+name
+                        seen.add(name); (Path(folder)/name).write_bytes(content)
+                    chunks,stats=ingest(folder,size,overlap)
+                if not chunks: st.error('No readable text found. Please use a PDF with selectable text or a TXT file.')
+                else:
+                    st.session_state.index=Index(chunks,semantic)
+                    st.session_state.stats=stats
+        except Exception as exc:
+            st.error('We could not prepare these documents. Try a smaller file or turn off semantic search in Settings.')
+            with st.expander('Error details'): st.text(str(exc))
 if 'index' not in st.session_state:
-    st.info('Choose documents on the left, then select Process documents to begin.')
+    if not files: st.info('Add a document above to get started.')
     st.stop()
-index=st.session_state.index
-stats=st.session_state.stats
-cols=st.columns(3)
-for col,label,value in zip(cols,['Documents','Pages','Searchable passages'],[stats['documents'],stats['pages'],len(index.chunks)]):
-    col.metric(label,value)
-if stats['empty_pages']: st.warning(f"Skipped {stats['empty_pages']} empty pages.")
+index=st.session_state.index; stats=st.session_state.stats
+st.success(f"Ready · {stats['documents']} document(s) · {stats['pages']} page(s)")
+if stats['empty_pages']: st.warning(f"{stats['empty_pages']} page(s) had no readable text and were skipped.")
 for error in stats['errors']: st.warning(error)
-with st.expander('Inspect sample chunks'):
-    for chunk in index.chunks[:3]:
-        st.caption(f"{chunk['source']} · Page {chunk['page']} · Category: {chunk['category']}")
-        st.text(chunk['text'])
-
-st.subheader('Ask your documents')
-category=st.selectbox('Limit to category', ['All categories']+sorted({c['category'] for c in index.chunks}))
+st.subheader('2. Ask a question')
+categories=sorted({c['category'] for c in index.chunks})
+category=None
+if len(categories)>1:
+    with st.expander('Search a specific category'):
+        selected=st.selectbox('Category',['All documents']+categories)
+        category=None if selected=='All documents' else selected
 with st.form('question'):
-    question=st.text_input('Your question', placeholder='What does the document say about machine learning?')
-    submit=st.form_submit_button('Find an answer',type='primary')
-if submit:
-    st.session_state.pop('response',None)
-    st.session_state.pop('hits',None)
-    if not question.strip(): st.warning('Enter a question first.')
-    elif model is not None and not model.strip(): st.warning('Enter an Ollama model name.')
+    question=st.text_input('What would you like to know?',placeholder='For example: What are the main findings?')
+    submitted=st.form_submit_button('Search documents',type='primary')
+if submitted:
+    for key in ('result','hits','asked','answer_mode'): st.session_state.pop(key,None)
+    if not question.strip(): st.warning('Please enter a question.')
+    elif local_ai and not model.strip(): st.warning('Please enter a model name in Settings.')
     else:
         try:
-            with st.spinner('Finding evidence and preparing your answer…'):
-                hits=index.search(question,k,None if category=='All categories' else category)
-                st.session_state.hits=hits
-                st.session_state.response=answer(question,hits,model)
-                st.session_state.asked=question
+            with st.spinner('Looking through your documents…'):
+                hits=index.search(question,k,category)
+                st.session_state.hits=hits; st.session_state.asked=question
+                st.session_state.answer_mode=bool(local_ai)
+                if local_ai: st.session_state.result=answer(question,hits,model)
         except Exception as exc:
-            st.error(f'Answer generation failed: {exc}')
-            st.info('For Local AI, open Ollama and ensure the selected model is downloaded. You can also choose Offline mode.')
-if 'response' in st.session_state:
-    st.subheader('Answer')
-    st.caption(st.session_state.asked)
-    st.write(st.session_state.response)
-    st.download_button('Download answer',st.session_state.response,file_name='answer.txt')
+            st.error('The answer could not be generated. Your retrieved passages are shown below if available.')
+            with st.expander('Error details'): st.text(str(exc))
 if 'hits' in st.session_state:
-    st.subheader('Sources & retrieved context')
-    st.caption('These passages were provided to the model. Check them to verify its claims.')
-    for i,hit in enumerate(st.session_state.hits,1):
-        with st.expander(f"[{i}] {hit['source']} · Page {hit['page']}", expanded=i==1):
-            st.caption(f"Category: {hit['category']} · Similarity: {hit['score']:.3f}")
+    st.divider()
+    st.subheader('3. Read the results')
+    st.caption(st.session_state.asked)
+    hits=st.session_state.hits
+    if 'result' in st.session_state: st.write(st.session_state.result)
+    elif hits: st.write('Here are the closest passages from your documents. Check whether they answer your question.')
+    else: st.info('No passages were found in the selected documents.')
+    if hits and not st.session_state.get('answer_mode'): st.caption('Original passages · AI-written answers are not enabled. A close match may still be unrelated to your question.')
+    for i,hit in enumerate(hits,1):
+        with st.container(border=True):
+            st.markdown(f'**Source {i}**')
+            st.caption(f"{hit['source']} · Page {hit['page']}")
             st.text(hit['text'])
+    if hits:
+        export=(st.session_state.get('result','')+'\n\n'+'\n\n'.join(f"[{i}] {h['source']}, page {h['page']}\n{h['text']}" for i,h in enumerate(hits,1))).strip()
+        st.download_button('Save results',export,file_name='document-answer.txt')
