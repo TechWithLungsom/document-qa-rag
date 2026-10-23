@@ -8,16 +8,36 @@ from rag import Index, ingest, answer
 
 st.set_page_config(page_title='Ask your documents', page_icon='📄', layout='centered', initial_sidebar_state='collapsed')
 st.markdown('''<style>
-.stApp{background:#fafaf9;color:#202521}
-.block-container{max-width:820px;padding-top:3rem;padding-bottom:4rem}
-h1{letter-spacing:-1.5px;font-size:2.6rem!important;font-weight:650!important}
-h2{font-size:1.15rem!important;margin-top:1rem!important}
+.stApp{background:#f6f8f7;color:#182c25;color-scheme:light}
+.block-container{max-width:860px;padding-top:3.5rem;padding-bottom:4rem}
+h1{letter-spacing:-1.6px;font-size:2.7rem!important;font-weight:700!important;color:#163a2c!important}
+h2,h3{color:#214c3b!important;font-size:1.2rem!important;font-weight:650!important}
 [data-testid="stHeader"]{background:transparent}
-[data-testid="stMetric"]{background:white;border:1px solid #e7e8e5;border-radius:10px;padding:12px}
-.stButton>button[kind="primary"]{background:#276749;border-color:#276749}
+[data-testid="stSidebar"]{background:#edf3ef;color:#182c25}
+[data-testid="stSidebar"] p,[data-testid="stSidebar"] label{color:#263e33!important}
+[data-testid="stCaptionContainer"] p{color:#5a6c63!important;line-height:1.6}
+[data-testid="stFileUploaderDropzone"]{background:#202d28!important;border:1px dashed #729783!important;border-radius:16px!important;padding:24px!important}
+[data-testid="stFileUploaderDropzone"] p,[data-testid="stFileUploaderDropzone"] small,[data-testid="stFileUploaderDropzone"] span{color:#f1f7f3!important}
+[data-testid="stFileUploaderDropzone"] button{background:#345c48!important;border:1px solid #85ad94!important;color:#fff!important;border-radius:10px!important}
+[data-testid="stFileUploaderDropzone"] button p,[data-testid="stFileUploaderDropzone"] button span,[data-testid="stFileUploaderDropzone"] button svg{color:#fff!important;fill:currentColor}
+[data-testid="stFileUploaderFile"]{background:#fff!important;color:#243d30!important;border-radius:8px;padding:8px}
+[data-testid="stFileUploaderFile"] *{color:#243d30!important}
+[data-testid="stTextInput"] input{background:#fff!important;color:#182c25!important;caret-color:#182c25!important;border:1px solid #cad8cf!important;border-radius:10px!important}
+[data-testid="stTextInput"] input::placeholder{color:#74867a!important}
+[data-testid="stTextInput"] label p,[data-testid="stFileUploader"] label p{color:#314d3d!important}
+.stButton>button,.stDownloadButton>button{border-radius:10px!important;min-height:44px;font-weight:600}
+.stButton>button[kind="primary"]{background:#276749!important;border-color:#276749!important;color:white!important}
+.stButton>button[kind="primary"] p{color:white!important}
+.stButton>button:hover{border-color:#63a47e!important}
+[data-testid="stVerticalBlockBorderWrapper"]>div{border-color:#dce6de!important;border-radius:14px!important;background:#fff}
+[data-testid="stText"]{white-space:pre-wrap;color:#263e33!important;font-family:inherit!important;line-height:1.65!important}
+[data-testid="stForm"]{background:white;border:1px solid #dce6de!important;border-radius:14px;padding:20px!important}
+[data-testid="stAlert"]{border-radius:12px}
+hr{border-color:#dce6de!important}
 </style>''', unsafe_allow_html=True)
+st.caption('DOCUMENT ASSISTANT')
 st.title('Ask your documents')
-st.write('Find answers in your PDFs, with sources you can check.')
+st.write('Turn your documents into clear answers, backed by sources.')
 hosted=bool(os.getenv('RENDER'))
 cloud=bool(os.getenv('OLLAMA_API_KEY'))
 with st.sidebar:
@@ -102,7 +122,7 @@ if 'hits' in st.session_state:
         with st.container(border=True):
             st.markdown(f'**Source {i}**')
             st.caption(f"{hit['source']} · Page {hit['page']}")
-            st.text(hit['text'])
+            st.write(hit['text'])
     if hits:
         export=(st.session_state.get('result','')+'\n\n'+'\n\n'.join(f"[{i}] {h['source']}, page {h['page']}\n{h['text']}" for i,h in enumerate(hits,1))).strip()
         st.download_button('Save results',export,file_name='document-answer.txt')
