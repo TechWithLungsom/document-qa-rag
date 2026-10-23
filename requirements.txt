@@ -1,0 +1,5 @@
+pypdf>=5,<7
+sentence-transformers>=3,<6
+faiss-cpu>=1.9,<2
+numpy>=1.26,<3
+streamlit>=1.40,<2
